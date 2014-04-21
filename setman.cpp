@@ -338,7 +338,7 @@ conf_t confirm(const args &a) {
 
 int main(int argc, char **argv) {
 
-  int exitcode = 1;
+  int exitcode = 2;
 
   try {
 
@@ -455,9 +455,13 @@ int main(int argc, char **argv) {
       dbg("Rolling back");
       fstream f(SETMAN_STATE, ios_base::in);
       apply_state(f, a, force);
-    }
 
-    exitcode = 0;
+      exitcode = 1;
+    }
+    else {
+
+      exitcode = 0;
+    }
   }
   catch(string &e) {
     cerr << e << endl;
