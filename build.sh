@@ -1,3 +1,3 @@
 #!/bin/sh
 
-g++ -std=gnu++11 -o setman setman.cpp
+g++ -std=gnu++11 -include syscmd.h -o setman setman.cpp

@@ -21,8 +21,6 @@
 #include <climits>
 #include <cstdlib>
 
-#include "syscmd.h"
-
 using namespace std;
 
 static inline std::string mks_(function<void(ostringstream &oss)> f) {
