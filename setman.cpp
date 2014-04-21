@@ -129,6 +129,7 @@ void ip_check(const string &ip) {
 
 void sys(string s) {
   int ret = system(s.c_str());
+  dbg("\"" << s << "\" ret " << ret);
   throw_if(ret != 0);
 }
 
@@ -199,6 +200,10 @@ void apply_state(istream &fs, const args &a, cmdmode_t mode) {
       string ip, mask, gw, dns1, dns2, dns3, e;
       s >> ip >> mask >> gw >> dns1 >> dns2 >> dns3;
       throw_if( s >> e );
+
+      ip_check(ip);
+      ip_check(mask);
+      ip_check(gw);
 
       if(mode == dryrun)
         continue;
