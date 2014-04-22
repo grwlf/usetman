@@ -100,8 +100,10 @@ public:
   throw_if(nam == NULL); \
   atret( free(nam); );
 
+#define DEFAULT_WAIT 10
+
 struct args {
-  args() : wait_sec(10), force(false) {}
+  args() : wait_sec(DEFAULT_WAIT), force(false) {}
 
   string eth;
   int wait_sec;
@@ -341,9 +343,27 @@ conf_t confirm(const args &a) {
   }
 }
 
+void usage()  {
+  cerr << endl;
+  cerr << "Usage: setman -e ETH [-w SEC] [-f] (-|FILE)" << endl;
+  cerr << "         -e ETH  Network interface" << endl;
+  cerr << "         -w SEC  Wait SEC seconds for confirmation" << endl;
+  cerr << "                 (Default: " << DEFAULT_WAIT << " secons)" << endl;
+  cerr << "         -f      Force applying, don't wait for confirmation" << endl;
+  cerr << "         FILE    New command file" << endl;
+  cerr << "Signals:" << endl;
+  cerr << "         SIGUSR1 Confirm the changes" << endl;
+  cerr << "Files:" << endl;
+  cerr << "         PID file:   " << SETMAN_PIDFILE << endl;
+  cerr << "         State:      " << SETMAN_STATE << endl;
+  cerr << "         Lock file:  " << SETMAN_LOCKFILE << " (access via flock)" << endl;
+  exit(3);
+}
+
 int main(int argc, char **argv) {
 
   int exitcode = 2;
+  bool show_usage = true;
 
   try {
 
@@ -369,39 +389,47 @@ int main(int argc, char **argv) {
         throw_if(++i >= argc);
         a.eth = string(argv[i]);
       }
-      if(string(argv[i]) == "-w") {
+      else if(string(argv[i]) == "-w") {
         throw_if(++i >= argc);
         a.wait_sec = stoi(string(argv[i]));
       }
-      if(string(argv[i]) == "-f") {
+      else if(string(argv[i]) == "-f") {
         a.force = true;
       }
-      if(string(argv[i]) == "-") {
-        int tmpfd = mkstemp(tmpnm);
-        throw_if( tmpfd < 0 );
-        tmpdead = false;
-        atret_(g, if(!tmpdead) { dbg("Removing " << tmpnm); remove(tmpnm) ;} );
-        atret( if(tmpfd>0) { dbg("Closing " << tmpnm); close(tmpfd); } );
-
-        __gnu_cxx::stdio_filebuf<char> filebuf(tmpfd, std::ios::out);
-        ostream tmps(&filebuf);
-        tmpfd = -1;
-
-        string line;
-        while(getline(cin, line)) {
-          throw_if_not( tmps << line << endl );
-        }
-        fname = tmpnm;
+      else if(string(argv[i]) == "-h" || string(argv[i]) == "--help") {
+        usage();
+      }
+      else if(string(argv[i]) == "-") {
+        fname = "-";
       }
       else {
         fname = string(argv[i]);
       }
     }
 
-    dbg("Fname " << fname);
-
     throw_if( a.eth.length() == 0 );
 
+    if(fname == "-") {
+      int tmpfd = mkstemp(tmpnm);
+      throw_if( tmpfd < 0 );
+      tmpdead = false;
+      atret_(g, if(!tmpdead) { dbg("Removing " << tmpnm); remove(tmpnm) ;} );
+      atret( if(tmpfd>0) { dbg("Closing " << tmpnm); close(tmpfd); } );
+
+      __gnu_cxx::stdio_filebuf<char> filebuf(tmpfd, std::ios::out);
+      ostream tmps(&filebuf);
+      tmpfd = -1;
+
+      string line;
+      while(getline(cin, line)) {
+        throw_if_not( tmps << line << endl );
+      }
+      fname = tmpnm;
+    }
+
+    dbg("Fname " << fname);
+
+    show_usage = false;
 
     lockfile(g);
 
@@ -477,6 +505,9 @@ int main(int argc, char **argv) {
   catch(...) {
     cerr << "unknown" << endl;
   }
+
+  if(exitcode != 0 && show_usage)
+    usage();
 
   return exitcode;
 }
