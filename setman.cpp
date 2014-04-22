@@ -116,17 +116,18 @@ bool ip_enabled(const string ip) {
   return true;
 }
 
-string spc(string s) {
+string spc(const string &s) {
   return string(" " + s + " ");
 }
 
 void ip_check(const string &ip) {
   if(ip == "-")
     return; /* means 'disabled' */
-  int a,b,c,d; char e;
-  int ret = sscanf(ip.c_str(),"%d.%d.%d.%d%c", a,b,c,d,e);
-  throw_if( ret == EOF );
-  throw_if( ret != 4 );
+  int a=0,b=0,c=0,d=0;
+  char buf[256];
+  sscanf(ip.c_str(),"%d.%d.%d.%d", &a,&b,&c,&d);
+  snprintf(buf, 256, "%d.%d.%d.%d", a,b,c,d);
+  throw_if( ip != buf );
 }
 
 void sys(string s) {
@@ -136,11 +137,9 @@ void sys(string s) {
 }
 
 typedef enum{dryrun,force} cmdmode_t;
+typedef function<bool(string,istream&)> fchecker_t;
 
-void apply_state(istream &fs, const args &a, cmdmode_t mode) {
-
-  guard g;
-  FILE *pp = NULL;
+void with_ip(cmdmode_t mode, const args &a, function< void( fchecker_t ) > f) {
 
   if(mode == force) {
 
@@ -174,27 +173,14 @@ void apply_state(istream &fs, const args &a, cmdmode_t mode) {
     sys(SETMAN_IPTABLES " -A INPUT -i lo -j ACCEPT");
     sys(SETMAN_IPTABLES " -A INPUT -p ICMP -j ACCEPT");
     sys(SETMAN_IPTABLES " -A INPUT -p TCP -m state --state ESTABLISHED,RELATED -j ACCEPT");
-
-    /* Launching the upwd*/
-    pp = popen(SETMAN_UPWD, "we");
-    throw_if(pp == NULL);
-    atret_(g, if(pp) pclose(pp); );
   }
 
-  string line;
-  while(getline(fs, line)) {
-
-    dbg("Command" << (mode == dryrun ? " (dryrun): " : ": ") << line );
-
-    string cmd;
-    istringstream s(line);
-
-    throw_if_not( s >> cmd );
+  f([&](string cmd, istream &s) {
 
     if(cmd == "dhcp") {
 
       if(mode == dryrun)
-        continue;
+        return true;
 
       sys( SETMAN_DHCP );
     }
@@ -207,88 +193,213 @@ void apply_state(istream &fs, const args &a, cmdmode_t mode) {
       ip_check(mask);
       ip_check(gw);
 
-      if(mode == dryrun)
-        continue;
+      if(mode == force) {
 
-      sys( ss(SETMAN_IFCONFIG << spc(a.eth) << " up ") );
+        sys( ss(SETMAN_IFCONFIG << spc(a.eth) << " up ") );
 
-      sys( ss(SETMAN_IFCONFIG << spc(a.eth) << spc(ip) << " netmask " << spc(mask) ));
+        sys( ss(SETMAN_IFCONFIG << spc(a.eth) << spc(ip) << " netmask " << spc(mask) ));
 
-      if(gw != "-") {
-        sys( ss(SETMAN_ROUTE << spc(a.eth) << " add default gw " << spc(gw) ));
+        if(gw != "-") {
+          sys( ss(SETMAN_ROUTE << " add default gateway " << spc(gw) ));
+        }
+
+        bool moved = false;
+        const char *tmp = SETMAN_RESOLVCONF ".new";
+        const char *fin = SETMAN_RESOLVCONF;
+        FILE* f = fopen(tmp, "we");
+        throw_if(f == NULL);
+        atret( if(f) fclose(f) );
+        atret( if(!moved) remove(tmp) );
+
+        if(ip_enabled(dns1)) {
+          fprintf(f, "nameserver %s\n", dns1.c_str());
+        }
+
+        if(ip_enabled(dns2)) {
+          fprintf(f, "nameserver %s\n", dns2.c_str());
+        }
+
+        if(ip_enabled(dns3)) {
+          fprintf(f, "nameserver %s\n", dns3.c_str());
+        }
+
+        throw_if( 0 != fclose(f) );
+        f = NULL;
+
+        throw_if( 0 != rename(tmp, fin) );
+        moved = true;
       }
-
-      bool moved = false;
-      const char *tmp = SETMAN_RESOLVCONF ".new";
-      const char *fin = SETMAN_RESOLVCONF;
-      FILE* f = fopen(tmp, "we");
-      throw_if(f == NULL);
-      atret( if(f) fclose(f) );
-      atret( if(!moved) remove(tmp) );
-
-      if(ip_enabled(dns1)) {
-        fprintf(f, "nameserver %s\n", dns1.c_str());
-      }
-
-      if(ip_enabled(dns2)) {
-        fprintf(f, "nameserver %s\n", dns2.c_str());
-      }
-
-      if(ip_enabled(dns3)) {
-        fprintf(f, "nameserver %s\n", dns3.c_str());
-      }
-
-      throw_if( 0 != fclose(f) );
-      f = NULL;
-
-      throw_if( 0 != rename(tmp, fin) );
-      moved = true;
+    }
+    else if(cmd == "off") {
+      string e;
+      throw_if( s >> e );
+      /* no args, do nothing */
     }
     else if(cmd == "allow") {
       string ip, mask, e;
       s >> ip >> mask;
       throw_if( s >> e );
 
-      if(mode == dryrun)
-        continue;
-
-      if(ip_enabled(mask)) {
-        sys( ss(SETMAN_IPTABLES << " -A input -s '" << ip << "/" << mask << "' -j ACCEPT"));
-      }
-      else {
-        sys( ss(SETMAN_IPTABLES << " -A input -s '" << ip << "' -j ACCEPT"));
+      if(mode == force) {
+        if(ip_enabled(mask)) {
+          sys( ss(SETMAN_IPTABLES << " -A input -s '" << ip << "/" << mask << "' -j ACCEPT"));
+        }
+        else {
+          sys( ss(SETMAN_IPTABLES << " -A input -s '" << ip << "' -j ACCEPT"));
+        }
       }
     }
-    else if (cmd == "user") {
+    else {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+void with_user(cmdmode_t mode, function< void( fchecker_t ) > f) {
+
+  FILE *pp = NULL;
+
+  if(mode == force) {
+    pp = popen(SETMAN_UPWD, "we");
+    throw_if(pp == NULL);
+  }
+
+  f([&](string cmd, istream &s) {
+
+    if (cmd == "user") {
       string usr, pwd, e;
       s >> usr >> pwd;
       throw_if( s >> e );
 
-      if(mode == dryrun)
-        continue;
+      if(pp)
+        fprintf(pp,"%s %s\n", usr.c_str(), pwd.c_str());
 
-      fprintf(pp,"%s %s\n", usr.c_str(), pwd.c_str());
+      return true;
     }
-    else if (cmd == "serial") {
-      string baud, parity, e;
 
-      s >> baud >> parity;
+    return false;
+
+  });
+
+  if(pp) pclose(pp);
+}
+
+void with_serial(cmdmode_t mode, function< void( fchecker_t ) > f) {
+
+  if(mode == force) {
+  }
+
+  f([&](string cmd, istream &s) {
+    if (cmd == "serial") {
+      string baud, parity, stop, data, flow, e;
+
+      s >> baud >> parity >> stop >> data >> flow;
       throw_if( s >> e );
 
-      if(mode == dryrun)
-        continue;
+      if(mode == force) {
 
-      throw_("not implemented");
+        throw_("Not implemented. args: serial "
+          << baud << parity << stop << data << flow << e);
+
+      }
+
     }
     else {
-      throw_("invalid command '" << cmd << "'");
+      return false;
     }
-  }
 
-  if(pp) {
-    throw_if( 0 != pclose(pp) );
-    pp = NULL;
-  }
+    return true;
+  });
+}
+
+
+typedef function<void(istream&, const args&, cmdmode_t)> fapplier_t;
+
+void apply_state_all(istream &fs, const args &a, cmdmode_t mode) {
+
+  with_ip(mode, a, [&](fchecker_t ip_chk) {
+
+  with_user(mode, [&](fchecker_t user_chk) {
+
+  with_serial(mode, [&](fchecker_t serial_chk) {
+
+    string line;
+    while(getline(fs, line)) {
+
+      dbg("Command" << (mode == dryrun ? " (dryrun): " : ": ") << line );
+
+      string cmd;
+      istringstream s(line);
+
+      throw_if_not( s >> cmd );
+
+      if(ip_chk(cmd, s))
+        continue;
+      if(user_chk(cmd, s))
+        continue;
+      if(serial_chk(cmd, s))
+        continue;
+      else  {
+        throw_("Invalid command '" << cmd << "'");
+      }
+    }
+
+  });
+
+  });
+
+  });
+}
+
+void apply_state_net(istream &fs, const args &a, cmdmode_t mode) {
+
+  with_ip(mode, a, [&](fchecker_t ip_chk) {
+
+    string line;
+    while(getline(fs, line)) {
+
+      dbg("Command" << (mode == dryrun ? " (dryrun): " : ": ") << line );
+
+      string cmd;
+      istringstream s(line);
+
+      throw_if_not( s >> cmd );
+
+      if(ip_chk(cmd, s))
+        continue;
+
+      else  {
+        throw_("Invalid command '" << cmd << "'");
+      }
+    }
+
+  });
+}
+
+void apply_state_serial(istream &fs, const args &a, cmdmode_t mode) {
+
+  with_serial(mode, [&](fchecker_t serial_chk) {
+
+    string line;
+    while(getline(fs, line)) {
+
+      dbg("Command" << (mode == dryrun ? " (dryrun): " : ": ") << line );
+
+      string cmd;
+      istringstream s(line);
+
+      throw_if_not( s >> cmd );
+
+      if( serial_chk(cmd, s) )
+        continue;
+      else {
+        throw_("Invalid command '" << cmd << "'");
+      }
+    }
+
+  });
 }
 
 void lockfile(guard &g) {
@@ -345,7 +456,7 @@ conf_t confirm(const args &a) {
 
 void usage()  {
   cerr << endl;
-  cerr << "Usage: setman -e ETH [-w SEC] [-f] (-|FILE)" << endl;
+  cerr << "Usage: setman -e ETH [-w SEC] [-f] [-m mode] (-|FILE)" << endl;
   cerr << "         -e ETH  Network interface" << endl;
   cerr << "         -w SEC  Wait SEC seconds for confirmation" << endl;
   cerr << "                 (Default: " << DEFAULT_WAIT << " secons)" << endl;
@@ -355,7 +466,7 @@ void usage()  {
   cerr << "         SIGUSR1 Confirm the changes" << endl;
   cerr << "Files:" << endl;
   cerr << "         PID file:   " << SETMAN_PIDFILE << endl;
-  cerr << "         State:      " << SETMAN_STATE << endl;
+  cerr << "         State:      " << SETMAN_STATE << "[.mode]" << endl;
   cerr << "         Lock file:  " << SETMAN_LOCKFILE << " (access via flock)" << endl;
   exit(3);
 }
@@ -378,11 +489,8 @@ int main(int argc, char **argv) {
     throw_if( 0 != sigaction(SIGINT, &s, NULL));
     throw_if( 0 != sigaction(SIGPIPE, &s, NULL));
 
-    guard g;
-    char tmpnm[] = SETMAN_TMP "/setman.XXXXXX";
-    bool tmpdead = true;
-
     string fname;
+    string mode;
 
     for(int i=1; i< argc; i++) {
       if(string(argv[i]) == "-e") {
@@ -402,32 +510,63 @@ int main(int argc, char **argv) {
       else if(string(argv[i]) == "-") {
         fname = "-";
       }
+      else if(string(argv[i]) == "-m") {
+        throw_if(++i >= argc);
+        mode = string(".") + string(argv[i]);
+      }
       else {
         fname = string(argv[i]);
       }
     }
 
+    fapplier_t apply_state = apply_state_all;
+
+    if(mode == ".serial") {
+      apply_state = apply_state_serial;
+    }
+    else if (mode == ".net") {
+      apply_state = apply_state_net;
+    }
+    else if (mode == ".all" || mode == "") {
+      apply_state = apply_state_all;
+    }
+    else {
+      throw_("Invalid mode " << mode);
+    }
+
+    guard g;
+    string stnm = SETMAN_STATE + mode;
+    string tmpnm = stnm + ".new";
+    bool tmpdead = true;
+
+    if(a.eth.length() == 0) {
+      const char *eth = getenv("ETH");
+      throw_if(eth == NULL);
+      a.eth = eth;
+    }
+
     throw_if( a.eth.length() == 0 );
 
     if(fname == "-") {
-      int tmpfd = mkstemp(tmpnm);
-      throw_if( tmpfd < 0 );
+      fstream tmps(tmpnm, ios_base::out);
+      throw_if(!tmps);
       tmpdead = false;
-      atret_(g, if(!tmpdead) { dbg("Removing " << tmpnm); remove(tmpnm) ;} );
-      atret( if(tmpfd>0) { dbg("Closing " << tmpnm); close(tmpfd); } );
-
-      __gnu_cxx::stdio_filebuf<char> filebuf(tmpfd, std::ios::out);
-      ostream tmps(&filebuf);
-      tmpfd = -1;
+      g.next([&]() { if(!tmpdead) { dbg("Removing " << tmpnm); remove(tmpnm.c_str()); } });
 
       string line;
       while(getline(cin, line)) {
         throw_if_not( tmps << line << endl );
       }
+
+      tmps.close();
+
+      throw_if(!cin.eof());
+      throw_if(!tmps);
       fname = tmpnm;
     }
 
     dbg("Fname " << fname);
+    dbg("State " << stnm);
 
     show_usage = false;
 
@@ -436,10 +575,14 @@ int main(int argc, char **argv) {
     {
       dbg("Syntax " << fname);
       fstream fs(fname, ios_base::in);
+      throw_if(!fs);
       apply_state(fs, a, dryrun);
 
-      dbg("Syntax " << SETMAN_STATE);
-      fstream f(SETMAN_STATE, ios_base::in);
+      dbg("Syntax " << stnm);
+      fstream f(stnm, ios_base::in);
+      if(!f) {
+        dbg("Warning: state " << stnm << " doesn't exist, treating as empty");
+      }
       apply_state(f, a, dryrun);
     }
 
@@ -453,7 +596,7 @@ int main(int argc, char **argv) {
       if(a.force) {
 
         dbg("Forcing");
-        throw_if( 0 != rename(fname.c_str(), SETMAN_STATE) );
+        throw_if( 0 != rename(fname.c_str(), stnm.c_str()) );
         tmpdead = true;
         restore = false;
 
@@ -466,7 +609,7 @@ int main(int argc, char **argv) {
 
           case confirmed:
             dbg("Confirming");
-            throw_if( 0 != rename(fname.c_str(), SETMAN_STATE) );
+            throw_if( 0 != rename(fname.c_str(), stnm.c_str()) );
             tmpdead = true;
             restore = false;
             break;
@@ -486,7 +629,7 @@ int main(int argc, char **argv) {
 
     if(restore) {
       dbg("Rolling back");
-      fstream f(SETMAN_STATE, ios_base::in);
+      fstream f(stnm.c_str(), ios_base::in);
       apply_state(f, a, force);
 
       exitcode = 1;
