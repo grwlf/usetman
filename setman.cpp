@@ -23,6 +23,8 @@
 
 using namespace std;
 
+static string g_dmode = "?";
+
 static inline std::string mks_(function<void(ostringstream &oss)> f) {
   ostringstream oss;
   f(oss);
@@ -31,10 +33,7 @@ static inline std::string mks_(function<void(ostringstream &oss)> f) {
 
 #define ss(x) mks_([&](std::ostringstream &oss){ oss << x ;})
 
-#define derror(cmd, args...) fprintf(stderr, "%s:%d:" cmd "\n", __func__, __LINE__, ##args)
-#define dbg(ss) do{ cerr <<  __func__ << ":" <<  __LINE__ << ": " << ss << endl; } while(0)
-#define badret_if(cnd) do{ if(cnd){ derror("Error: %s", #cnd); return false; } } while(0)
-#define exit_if(cnd) do{ if(cnd){ derror("Error: %s", #cnd); exit(EXIT_FAILURE); } } while(0)
+#define dbg(ss) do{ cerr <<  "setman[" << g_dmode << "]: " << __func__ << ":" <<  __LINE__ << ": " << ss << endl; } while(0)
 #define throw_(s) do{ int _errno = errno; throw string( ss( __func__ << ":" << __LINE__ << ":e" << _errno << ": " << s)); } while(0)
 #define throw_if(cnd) do{ if(cnd){ throw_( #cnd ); } } while(0)
 #define throw_if_not(cnd) throw_if(!(cnd))
@@ -44,11 +43,11 @@ inline void in_try_catch(std::function<void()> f) {
       f();
     }
     catch(std::exception &e) {
-      derror("exception %s", e.what());
+      dbg("exception " << e.what());
       assert(false);
     }
     catch(...) {
-      derror("exception '...'");
+      dbg("exception '...'");
       assert(false);
     }
 }
@@ -301,7 +300,7 @@ void with_serial(cmdmode_t mode, function< void( fchecker_t ) > f) {
       if(mode == force) {
 
         throw_("Not implemented. args: serial "
-          << baud << parity << stop << data << flow << e);
+          << spc(baud) << spc(parity) << spc(stop) << spc(data) << spc(flow) << e);
 
       }
 
@@ -512,6 +511,7 @@ int main(int argc, char **argv) {
       }
       else if(string(argv[i]) == "-m") {
         throw_if(++i >= argc);
+        g_dmode = string(argv[i]);
         mode = string(".") + string(argv[i]);
       }
       else {
@@ -529,10 +529,12 @@ int main(int argc, char **argv) {
     }
     else if (mode == ".all" || mode == "") {
       apply_state = apply_state_all;
+      g_dmode = "all";
     }
     else {
       throw_("Invalid mode " << mode);
     }
+
 
     guard g;
     string stnm = SETMAN_STATE + mode;
@@ -640,13 +642,13 @@ int main(int argc, char **argv) {
     }
   }
   catch(string &e) {
-    cerr << e << endl;
+    dbg(e);
   }
   catch(exception &e) {
-    cerr << e.what() << endl;
+    dbg(e.what());
   }
   catch(...) {
-    cerr << "unknown" << endl;
+    dbg("Unknown exception");
   }
 
   if(exitcode != 0 && show_usage)
