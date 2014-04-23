@@ -292,18 +292,14 @@ void with_serial(cmdmode_t mode, function< void( fchecker_t ) > f) {
 
   f([&](string cmd, istream &s) {
     if (cmd == "serial") {
-      string baud, parity, stop, data, flow, e;
-
-      s >> baud >> parity >> stop >> data >> flow;
-      throw_if( s >> e );
+      string line;
+      getline(s, line);
 
       if(mode == force) {
 
-        throw_("Not implemented. args: serial "
-          << spc(baud) << spc(parity) << spc(stop) << spc(data) << spc(flow) << e);
+        sys( ss(SETMAN_SERIAL << " " << line) );
 
       }
-
     }
     else {
       return false;
@@ -623,10 +619,10 @@ int main(int argc, char **argv) {
       }
     }
     catch(string &e) {
-      cerr << e << " (will rollback)" << endl;
+      dbg("Exception: " << e);
     }
     catch(exception &e) {
-      cerr << e.what() << " (will rollback)" << endl;
+      dbg("Exception: " << e.what());
     }
 
     if(restore) {
@@ -642,13 +638,13 @@ int main(int argc, char **argv) {
     }
   }
   catch(string &e) {
-    dbg(e);
+    dbg("Exception: " << e);
   }
   catch(exception &e) {
-    dbg(e.what());
+    dbg("Exception: " << e.what());
   }
   catch(...) {
-    dbg("Unknown exception");
+    dbg("Exception unknown");
   }
 
   if(exitcode != 0 && show_usage)

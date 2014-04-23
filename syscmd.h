@@ -12,4 +12,5 @@
 #define SETMAN_DHCP "./stubs/stub.sh dhcp"
 #define SETMAN_ROUTE "./stubs/stub.sh route"
 #define SETMAN_UPWD "./stubs/stub.sh upwd"
+#define SETMAN_SERIAL "./stubs/stub.sh serial"
 
