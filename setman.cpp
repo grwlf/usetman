@@ -451,11 +451,13 @@ conf_t confirm(const args &a) {
 
 void usage()  {
   cerr << endl;
-  cerr << "Usage: setman -e ETH [-w SEC] [-f] [-m mode] (-|FILE)" << endl;
+  cerr << "Usage: setman -e ETH [-w SEC] [-f] [-m mode] ([-c|-r]]|(-|FILE))" << endl;
   cerr << "         -e ETH  Network interface" << endl;
   cerr << "         -w SEC  Wait SEC seconds for confirmation" << endl;
   cerr << "                 (Default: " << DEFAULT_WAIT << " secons)" << endl;
   cerr << "         -f      Force applying, don't wait for confirmation" << endl;
+  cerr << "         -c      Commit unconfirmed changes" << endl;
+  cerr << "         -r      Rollback unconfirmed changes" << endl;
   cerr << "         FILE    New command file" << endl;
   cerr << "Signals:" << endl;
   cerr << "         SIGUSR1 Confirm the changes" << endl;
@@ -465,6 +467,8 @@ void usage()  {
   cerr << "         Lock file:  " << SETMAN_LOCKFILE << " (access via flock)" << endl;
   exit(3);
 }
+
+typedef enum {commit, rollback, apply} act_t;
 
 int main(int argc, char **argv) {
 
@@ -486,6 +490,7 @@ int main(int argc, char **argv) {
 
     string fname;
     string mode;
+    act_t act = apply;
 
     for(int i=1; i< argc; i++) {
       if(string(argv[i]) == "-e") {
@@ -509,6 +514,12 @@ int main(int argc, char **argv) {
         throw_if(++i >= argc);
         g_dmode = string(argv[i]);
         mode = string(".") + string(argv[i]);
+      }
+      else if(string(argv[i]) == "-c" || string(argv[i]) == "--commit") {
+        act = commit;
+      }
+      else if(string(argv[i]) == "-r" || string(argv[i]) == "--rollback") {
+        act = rollback;
       }
       else {
         fname = string(argv[i]);
@@ -565,6 +576,22 @@ int main(int argc, char **argv) {
 
     dbg("Fname " << fname);
     dbg("State " << stnm);
+
+    switch(act) {
+      case apply:
+        break;
+      case commit:
+      case rollback: {
+        fstream pidf(SETMAN_PIDFILE, ios_base::in);
+        int pid;
+        throw_if_not( pidf >> pid );
+        int ret = kill(pid, act == commit ? SIGUSR1 : SIGINT);
+        throw_if(ret != 0);
+        break;
+      }
+      default:
+        throw_("Invalid action: " << act);
+    }
 
     show_usage = false;
 
