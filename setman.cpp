@@ -580,9 +580,82 @@ int main(int argc, char **argv) {
     dbg("Fname " << fname);
     dbg("State " << stnm);
 
+    show_usage = false;
+
     switch(act) {
-      case apply:
+      case apply: {
+
+        lockfile(g);
+
+        {
+          dbg("Syntax " << fname);
+          fstream fs(fname, ios_base::in);
+          throw_if(!fs);
+          apply_state(fs, a, dryrun);
+
+          dbg("Syntax " << stnm);
+          fstream f(stnm, ios_base::in);
+          if(!f) {
+            dbg("Warning: state " << stnm << " doesn't exist, treating as empty");
+          }
+          apply_state(f, a, dryrun);
+        }
+
+        bool restore = true;
+
+        try {
+
+          fstream fs(fname, ios_base::in);
+          apply_state(fs, a, force);
+
+          if(a.force) {
+
+            dbg("Forcing");
+            throw_if( 0 != rename(fname.c_str(), stnm.c_str()) );
+            tmpdead = true;
+            restore = false;
+
+          }
+          else {
+
+            conf_t c = confirm(a);
+
+            switch(c) {
+
+              case confirmed:
+                dbg("Confirming");
+                throw_if( 0 != rename(fname.c_str(), stnm.c_str()) );
+                tmpdead = true;
+                restore = false;
+                break;
+
+              default:
+                dbg("Discarding");
+                break;
+            }
+          }
+        }
+        catch(string &e) {
+          dbg("Exception: " << e);
+        }
+        catch(exception &e) {
+          dbg("Exception: " << e.what());
+        }
+
+        if(restore) {
+          dbg("Rolling back");
+          fstream f(stnm.c_str(), ios_base::in);
+          apply_state(f, a, force);
+
+          exitcode = 1;
+        }
+        else {
+
+          exitcode = 0;
+        }
         break;
+      }
+
       case commit:
       case rollback: {
         fstream pidf(SETMAN_PIDFILE, ios_base::in);
@@ -590,82 +663,14 @@ int main(int argc, char **argv) {
         throw_if_not( pidf >> pid );
         int ret = kill(pid, act == commit ? SIGUSR1 : SIGINT);
         throw_if(ret != 0);
+        exitcode = 0;
         break;
       }
+
       default:
         throw_("Invalid action: " << act);
     }
 
-    show_usage = false;
-
-    lockfile(g);
-
-    {
-      dbg("Syntax " << fname);
-      fstream fs(fname, ios_base::in);
-      throw_if(!fs);
-      apply_state(fs, a, dryrun);
-
-      dbg("Syntax " << stnm);
-      fstream f(stnm, ios_base::in);
-      if(!f) {
-        dbg("Warning: state " << stnm << " doesn't exist, treating as empty");
-      }
-      apply_state(f, a, dryrun);
-    }
-
-    bool restore = true;
-
-    try {
-
-      fstream fs(fname, ios_base::in);
-      apply_state(fs, a, force);
-
-      if(a.force) {
-
-        dbg("Forcing");
-        throw_if( 0 != rename(fname.c_str(), stnm.c_str()) );
-        tmpdead = true;
-        restore = false;
-
-      }
-      else {
-
-        conf_t c = confirm(a);
-
-        switch(c) {
-
-          case confirmed:
-            dbg("Confirming");
-            throw_if( 0 != rename(fname.c_str(), stnm.c_str()) );
-            tmpdead = true;
-            restore = false;
-            break;
-
-          default:
-            dbg("Discarding");
-            break;
-        }
-      }
-    }
-    catch(string &e) {
-      dbg("Exception: " << e);
-    }
-    catch(exception &e) {
-      dbg("Exception: " << e.what());
-    }
-
-    if(restore) {
-      dbg("Rolling back");
-      fstream f(stnm.c_str(), ios_base::in);
-      apply_state(f, a, force);
-
-      exitcode = 1;
-    }
-    else {
-
-      exitcode = 0;
-    }
   }
   catch(string &e) {
     dbg("Exception: " << e);
