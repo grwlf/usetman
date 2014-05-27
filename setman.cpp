@@ -210,7 +210,7 @@ void with_ip(cmdmode_t mode, const args &a, function< void( fchecker_t ) > f) {
 
         sys( ss(SETMAN_IFCONFIG << spc(a.eth) << spc(ip) << " netmask " << spc(mask) ));
 
-        if(gw != "-") {
+        if(gw != "-" && gw != "0.0.0.0") {
           sys( ss(SETMAN_ROUTE << " add default gateway " << spc(gw) ));
         }
 
