@@ -595,6 +595,21 @@ int main(int argc, char **argv) {
       throw_if(!tmps);
       fname = tmpnm;
     }
+    else {
+      string f = fname;
+      atret( dbg("Removing " << f); remove(f.c_str()); );
+      ifstream src(fname, ios::binary);
+      throw_if(!src);
+      ofstream dest(tmpnm, ios::binary);
+      throw_if(!dest);
+      tmpdead = false;
+      g.next([&]() { if(!tmpdead) { dbg("Removing " << tmpnm); remove(tmpnm.c_str()); } });
+      dbg("Copying from " << fname << " to " << tmpnm);
+      dest << src.rdbuf();
+      src.close();
+      dest.close();
+      fname = tmpnm;
+    }
 
     dbg("Fname " << fname);
     dbg("State " << stnm);
