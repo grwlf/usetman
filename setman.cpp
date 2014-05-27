@@ -9,6 +9,7 @@
 #include <sys/file.h>
 #include <signal.h>
 #include <time.h>
+#include <syslog.h>
 #include <ext/stdio_filebuf.h>
 
 #include <sstream>
@@ -33,7 +34,18 @@ static inline std::string mks_(function<void(ostringstream &oss)> f) {
 
 #define ss(x) mks_([&](std::ostringstream &oss){ oss << x ;})
 
-#define dbg(ss) do{ cerr <<  "setman[" << g_dmode << "]: " << __func__ << ":" <<  __LINE__ << ": " << ss << endl; } while(0)
+static bool g_haslog = false;
+
+#define dbg_stderr(ss) do{ cerr <<  "setman[" << g_dmode << "]: " << __func__ << ":" <<  __LINE__ << ": " << ss << endl; } while(0)
+
+#define dbg(s) do{ \
+  if(g_haslog) \
+    syslog(LOG_USER|LOG_NOTICE, "%s:%d:%s", __func__, __LINE__, ss(s).c_str()); \
+  else \
+    dbg_stderr(s); \
+  } while(0)
+
+
 #define throw_(s) do{ int _errno = errno; throw string( ss( __func__ << ":" << __LINE__ << ":e" << _errno << ": " << s)); } while(0)
 #define throw_if(cnd) do{ if(cnd){ throw_( #cnd ); } } while(0)
 #define throw_if_not(cnd) throw_if(!(cnd))
@@ -461,6 +473,7 @@ void usage()  {
   cerr << "         -f      Force applying, don't wait for confirmation" << endl;
   cerr << "         -c      Commit unconfirmed changes" << endl;
   cerr << "         -r      Rollback unconfirmed changes" << endl;
+  cerr << "         -q      Be quiet (almost)" << endl;
   cerr << "         FILE    New command file" << endl;
   cerr << "Signals:" << endl;
   cerr << "         SIGUSR1 Confirm the changes" << endl;
@@ -477,6 +490,7 @@ int main(int argc, char **argv) {
 
   int exitcode = 2;
   bool show_usage = true;
+  bool quiet = false;
 
   try {
 
@@ -524,6 +538,9 @@ int main(int argc, char **argv) {
       else if(string(argv[i]) == "-r" || string(argv[i]) == "--rollback") {
         act = rollback;
       }
+      else if(string(argv[i]) == "-q" || string(argv[i]) == "--quiet") {
+        quiet = true;
+      }
       else {
         fname = string(argv[i]);
       }
@@ -545,6 +562,8 @@ int main(int argc, char **argv) {
       throw_("Invalid mode " << mode);
     }
 
+    openlog("setman", (quiet ? 0 : LOG_PERROR)|LOG_PID|LOG_NDELAY, LOG_NOTICE);
+    g_haslog = true;
 
     guard g;
     string stnm = SETMAN_STATE + mode;
