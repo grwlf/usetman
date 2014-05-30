@@ -23,6 +23,7 @@
 #include <cstdlib>
 
 using namespace std;
+using namespace std::placeholders;
 
 static string g_dmode = "?";
 
@@ -122,7 +123,7 @@ struct args {
 };
 
 bool ip_enabled(const string ip) {
-  if(ip == "" || ip == "-")
+  if(ip == "" || ip == "-" || ip == "0.0.0.0")
     return false;
   return true;
 }
@@ -271,7 +272,7 @@ void with_ip(cmdmode_t mode, const args &a, function< void( fchecker_t ) > f) {
   });
 }
 
-void with_user(cmdmode_t mode, function< void( fchecker_t ) > f) {
+void with_user(cmdmode_t mode, const args &a, function< void( fchecker_t ) > f) {
 
   FILE *pp = NULL;
 
@@ -300,7 +301,7 @@ void with_user(cmdmode_t mode, function< void( fchecker_t ) > f) {
   if(pp) pclose(pp);
 }
 
-void with_serial(cmdmode_t mode, function< void( fchecker_t ) > f) {
+void with_serial(cmdmode_t mode, const args &a, function< void( fchecker_t ) > f) {
 
   if(mode == force) {
   }
@@ -325,15 +326,46 @@ void with_serial(cmdmode_t mode, function< void( fchecker_t ) > f) {
 }
 
 
+void with_syslog(cmdmode_t mode, const args &a, function< void ( fchecker_t ) > f) {
+
+  if(mode == force) {
+    sys( ss(SETMAN_SYSLOG) );
+  }
+
+  f([&](string cmd, istream &s) {
+    if (cmd == "syslog") {
+      int port;
+      string host, e;
+      s >> host >> port;
+      throw_if( s >> e );
+
+      ip_check(host);
+
+      if(mode == force) {
+        if(ip_enabled(host)) {
+          sys( ss(SETMAN_SYSLOG << " -S " << host << ":" << port) );
+        }
+      }
+    }
+    else {
+      return false;
+    }
+
+    return true;
+  });
+
+}
+
+
 typedef function<void(istream&, const args&, cmdmode_t)> fapplier_t;
 
 void apply_state_all(istream &fs, const args &a, cmdmode_t mode) {
 
   with_ip(mode, a, [&](fchecker_t ip_chk) {
 
-  with_user(mode, [&](fchecker_t user_chk) {
+  with_user(mode, a, [&](fchecker_t user_chk) {
 
-  with_serial(mode, [&](fchecker_t serial_chk) {
+  with_serial(mode, a, [&](fchecker_t serial_chk) {
 
     string line;
     while(getline(fs, line)) {
@@ -363,9 +395,9 @@ void apply_state_all(istream &fs, const args &a, cmdmode_t mode) {
   });
 }
 
-void apply_state_net(istream &fs, const args &a, cmdmode_t mode) {
-
-  with_ip(mode, a, [&](fchecker_t ip_chk) {
+template<class T>
+void apply_state_1(T f, istream &fs, const args &a, cmdmode_t mode) {
+  f(mode, a, [&](fchecker_t chk) {
 
     string line;
     while(getline(fs, line)) {
@@ -377,39 +409,30 @@ void apply_state_net(istream &fs, const args &a, cmdmode_t mode) {
 
       throw_if_not( s >> cmd );
 
-      if(ip_chk(cmd, s))
+      if(chk(cmd, s))
         continue;
 
       else  {
         throw_("Invalid command '" << cmd << "'");
       }
     }
-
   });
 }
 
+void apply_state_net(istream &fs, const args &a, cmdmode_t mode) {
+  apply_state_1(with_ip, fs, a, mode);
+}
+
 void apply_state_serial(istream &fs, const args &a, cmdmode_t mode) {
+  apply_state_1(with_serial, fs, a, mode);
+}
 
-  with_serial(mode, [&](fchecker_t serial_chk) {
+void apply_state_user(istream &fs, const args &a, cmdmode_t mode) {
+  apply_state_1(with_user, fs, a, mode);
+}
 
-    string line;
-    while(getline(fs, line)) {
-
-      dbg("Command" << (mode == dryrun ? " (dryrun): " : ": ") << line );
-
-      string cmd;
-      istringstream s(line);
-
-      throw_if_not( s >> cmd );
-
-      if( serial_chk(cmd, s) )
-        continue;
-      else {
-        throw_("Invalid command '" << cmd << "'");
-      }
-    }
-
-  });
+void apply_state_syslog(istream &fs, const args &a, cmdmode_t mode) {
+  apply_state_1(with_syslog, fs, a, mode);
 }
 
 void lockfile(guard &g) {
@@ -466,15 +489,18 @@ conf_t confirm(const args &a) {
 
 void usage()  {
   cerr << endl;
+  cerr << "Setman reset default system settings and/or applies new one" << endl << endl;
   cerr << "Usage: setman -e ETH [-w SEC] [-f] [-m mode] ([-c|-r]]|(-|FILE))" << endl;
-  cerr << "         -e ETH  Network interface" << endl;
-  cerr << "         -w SEC  Wait SEC seconds for confirmation" << endl;
-  cerr << "                 (Default: " << DEFAULT_WAIT << " secons)" << endl;
-  cerr << "         -f      Force applying, don't wait for confirmation" << endl;
-  cerr << "         -c      Commit unconfirmed changes" << endl;
-  cerr << "         -r      Rollback unconfirmed changes" << endl;
-  cerr << "         -q      Be quiet (almost)" << endl;
-  cerr << "         FILE    New command file" << endl;
+  cerr << "         -e ETH   Network interface" << endl;
+  cerr << "         -w SEC   Wait SEC seconds for confirmation" << endl;
+  cerr << "                  (Default: " << DEFAULT_WAIT << " secons)" << endl;
+  cerr << "         -f       Force applying, don't wait for confirmation" << endl;
+  cerr << "         -c       Commit unconfirmed changes" << endl;
+  cerr << "         -r       Rollback unconfirmed changes" << endl;
+  cerr << "         -q       Be quiet (almost)" << endl;
+  cerr << "         -m mode  Operate on a subset of settings" << endl;
+  cerr << "            mode is one of (net,serial,syslog,all,user)" << endl;
+  cerr << "         FILE     New command file" << endl;
   cerr << "Signals:" << endl;
   cerr << "         SIGUSR1 Confirm the changes" << endl;
   cerr << "Files:" << endl;
@@ -551,8 +577,15 @@ int main(int argc, char **argv) {
     if(mode == ".serial") {
       apply_state = apply_state_serial;
     }
+    else if (mode == ".user") {
+      apply_state = apply_state_user;
+    }
     else if (mode == ".net") {
       apply_state = apply_state_net;
+    }
+    else if (mode == ".syslog") {
+      // apply_state = bind(apply_state_1<with_syslog>, with_syslog, _1, _2, _3);
+      apply_state = apply_state_syslog;
     }
     else if (mode == ".all" || mode == "") {
       apply_state = apply_state_all;

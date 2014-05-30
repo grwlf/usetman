@@ -13,4 +13,5 @@
 #define SETMAN_ROUTE "./stubs/stub.sh route"
 #define SETMAN_UPWD "./stubs/stub.sh upwd"
 #define SETMAN_SERIAL "./stubs/stub.sh serial"
+#define SETMAN_SYSLOG "./stubs/stub.sh serial"
 
