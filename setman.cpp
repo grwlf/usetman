@@ -343,7 +343,7 @@ void with_syslog(cmdmode_t mode, const args &a, function< void ( fchecker_t ) > 
 
       if(mode == force) {
         if(ip_enabled(host)) {
-          sys( ss(SETMAN_SYSLOG << " -S " << host << ":" << port) );
+          sys( ss(SETMAN_SYSLOG << " -R " << host << ":" << port) );
         }
       }
     }
@@ -599,68 +599,69 @@ int main(int argc, char **argv) {
     g_haslog = true;
 
     guard g;
-    string stnm = SETMAN_STATE + mode;
-    string tmpnm = stnm + ".new";
-    bool tmpdead = true;
-
-    if(a.eth.length() == 0) {
-      const char *eth = getenv("ETH");
-      throw_if(eth == NULL);
-      a.eth = eth;
-    }
-
-    throw_if( a.eth.length() == 0 );
-
-    if(fname == "-") {
-      fstream tmps(tmpnm, ios_base::out);
-      throw_if(!tmps);
-      tmpdead = false;
-      g.next([&]() { if(!tmpdead) { dbg("Removing " << tmpnm); remove(tmpnm.c_str()); } });
-
-      string line;
-      while(getline(cin, line)) {
-        throw_if_not( tmps << line << endl );
-      }
-
-      tmps.close();
-
-      throw_if(!cin.eof());
-      throw_if(!tmps);
-      fname = tmpnm;
-    }
-    else {
-      string f = fname;
-      atret( dbg("Removing " << f); remove(f.c_str()); );
-      ifstream src(fname, ios::binary);
-      throw_if(!src);
-      ofstream dest(tmpnm, ios::binary);
-      throw_if(!dest);
-      tmpdead = false;
-      g.next([&]() { if(!tmpdead) { dbg("Removing " << tmpnm); remove(tmpnm.c_str()); } });
-      dbg("Copying from " << fname << " to " << tmpnm);
-      dest << src.rdbuf();
-      src.close();
-      dest.close();
-      fname = tmpnm;
-    }
-
-    dbg("Fname " << fname);
-    dbg("State " << stnm);
-
-    show_usage = false;
 
     switch(act) {
       case apply: {
 
         lockfile(g);
+        
+        string stnm = SETMAN_STATE + mode;
+        string tmpnm = stnm + ".new";
+        bool tmpdead = true;
+
+        if(a.eth.length() == 0) {
+          const char *eth = getenv("ETH");
+          throw_if(eth == NULL);
+          a.eth = eth;
+        }
+
+        throw_if( a.eth.length() == 0 );
+
+        if(fname == "-") {
+          fstream tmps(tmpnm, ios_base::out);
+          throw_if(!tmps);
+          tmpdead = false;
+          g.next([&]() { if(!tmpdead) { dbg("Removing " << tmpnm); remove(tmpnm.c_str()); } });
+
+          string line;
+          while(getline(cin, line)) {
+            throw_if_not( tmps << line << endl );
+          }
+
+          tmps.close();
+
+          throw_if(!cin.eof());
+          throw_if(!tmps);
+          fname = tmpnm;
+        }
+        else {
+          string f = fname;
+          atret( dbg("Removing " << f); remove(f.c_str()); );
+          ifstream src(fname, ios::binary);
+          throw_if(!src);
+          ofstream dest(tmpnm, ios::binary);
+          throw_if(!dest);
+          tmpdead = false;
+          g.next([&]() { if(!tmpdead) { dbg("Removing " << tmpnm); remove(tmpnm.c_str()); } });
+          dbg("Copying from " << fname << " to " << tmpnm);
+          dest << src.rdbuf();
+          src.close();
+          dest.close();
+          fname = tmpnm;
+        }
+
+        show_usage = false;
+
+        dbg("fname " << fname);
+        dbg("stnm " << stnm);
 
         {
-          dbg("Syntax " << fname);
+          dbg("Checking syntax of " << fname);
           fstream fs(fname, ios_base::in);
           throw_if(!fs);
           apply_state(fs, a, dryrun);
 
-          dbg("Syntax " << stnm);
+          dbg("Checking sysntax of  " << stnm);
           fstream f(stnm, ios_base::in);
           if(!f) {
             dbg("Warning: state " << stnm << " doesn't exist, treating as empty");
@@ -725,6 +726,10 @@ int main(int argc, char **argv) {
 
       case commit:
       case rollback: {
+
+        throw_if( fname != "" );
+        throw_if( a.eth != "" );
+
         fstream pidf(SETMAN_PIDFILE, ios_base::in);
         int pid;
         throw_if_not( pidf >> pid );
