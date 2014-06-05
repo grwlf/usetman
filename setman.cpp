@@ -27,6 +27,17 @@ using namespace std::placeholders;
 
 static string g_dmode = "?";
 
+FILE* popen_no_exec(const char *a1, const char* a2) {
+  FILE* f = popen(a1,a2);
+  if(f) {
+    if(fcntl(fileno(f), F_SETFD, FD_CLOEXEC) != 0) {
+      fclose(f);
+      f = NULL;
+    }
+  }
+  return f;
+}
+
 static inline std::string mks_(function<void(ostringstream &oss)> f) {
   ostringstream oss;
   f(oss);
@@ -277,7 +288,7 @@ void with_user(cmdmode_t mode, const args &a, function< void( fchecker_t ) > f) 
   FILE *pp = NULL;
 
   if(mode == force) {
-    pp = popen(SETMAN_UPWD, "we");
+    pp = popen_no_exec(SETMAN_UPWD, "we");
     throw_if(pp == NULL);
   }
 
