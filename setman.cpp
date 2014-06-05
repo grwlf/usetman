@@ -350,21 +350,23 @@ void with_syslog(cmdmode_t mode, const args &a, function< void ( fchecker_t ) > 
       int port;
       string host, e;
       s >> host >> port;
-      if(ip_enabled(host)) {
 
-        throw_if( s >> e );
+      throw_if( s >> e );
+      ip_check(host);
 
-        ip_check(host);
+      if(nsyslog < 2) {
 
-        if(nsyslog < 2) {
+        if(ip_enabled(host)) {
+
           if(mode == force) {
             sys( ss(SETMAN_SYSLOG << " -R " << host << ":" << port) );
           }
-          nsyslog++;
         }
-        else {
-          throw_("only one syslog server is supported at the moment");
-        }
+
+        nsyslog++;
+      }
+      else {
+        throw_("only one syslog server is supported at the moment");
       }
     }
     else {
