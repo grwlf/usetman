@@ -328,6 +328,8 @@ void with_serial(cmdmode_t mode, const args &a, function< void( fchecker_t ) > f
 
 void with_syslog(cmdmode_t mode, const args &a, function< void ( fchecker_t ) > f) {
 
+  int nsyslog = 0;
+
   if(mode == force) {
     sys( ss(SETMAN_SYSLOG) );
   }
@@ -337,13 +339,20 @@ void with_syslog(cmdmode_t mode, const args &a, function< void ( fchecker_t ) > 
       int port;
       string host, e;
       s >> host >> port;
-      throw_if( s >> e );
+      if(ip_enabled(host)) {
 
-      ip_check(host);
+        throw_if( s >> e );
 
-      if(mode == force) {
-        if(ip_enabled(host)) {
-          sys( ss(SETMAN_SYSLOG << " -R " << host << ":" << port) );
+        ip_check(host);
+
+        if(nsyslog < 2) {
+          if(mode == force) {
+            sys( ss(SETMAN_SYSLOG << " -R " << host << ":" << port) );
+          }
+          nsyslog++;
+        }
+        else {
+          throw_("only one syslog server is supported at the moment");
         }
       }
     }
