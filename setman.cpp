@@ -457,8 +457,8 @@ void apply_state_syslog(istream &fs, const args &a, cmdmode_t mode) {
   apply_state_1(with_syslog, fs, a, mode);
 }
 
-void lockfile(guard &g) {
-  int lockfd = open ( SETMAN_LOCKFILE, O_RDONLY | O_NOCTTY | O_NOFOLLOW | O_CREAT | O_CLOEXEC, 0666 );
+void lockfile(guard &g, const string &lf) {
+  int lockfd = open ( lf.c_str(), O_RDONLY | O_NOCTTY | O_NOFOLLOW | O_CREAT | O_CLOEXEC, 0666 );
   throw_if(lockfd < 0);
   g.next( [=]() { close(lockfd); } );
   throw_if( 0 != flock(lockfd, LOCK_EX | LOCK_NB ));
@@ -625,7 +625,7 @@ int main(int argc, char **argv) {
     switch(act) {
       case apply: {
 
-        lockfile(g);
+        lockfile(g, SETMAN_LOCKFILE + mode);
         
         string stnm = SETMAN_STATE + mode;
         string tmpnm = stnm + ".new";
