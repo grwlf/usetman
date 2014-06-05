@@ -619,6 +619,7 @@ int main(int argc, char **argv) {
 
     openlog("setman", (quiet ? 0 : LOG_PERROR)|LOG_PID|LOG_NDELAY, LOG_NOTICE);
     g_haslog = true;
+    dbg("mode " << g_dmode << " force " << a.force << " fname " << fname);
 
     guard g;
 
