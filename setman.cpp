@@ -396,6 +396,8 @@ void with_time(cmdmode_t mode, const args &a, function< void ( fchecker_t ) > f)
         tv.tv_usec = usec;
 
         throw_if(0 != settimeofday(&tv, NULL));
+        sys( ss(SETMAN_HWCLOCK << " -w") );
+
       }
     }
     else {
