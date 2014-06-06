@@ -7,6 +7,7 @@
 #include <memory.h>
 #include <pwd.h>
 #include <sys/file.h>
+#include <sys/time.h>
 #include <signal.h>
 #include <time.h>
 #include <syslog.h>
@@ -378,6 +379,33 @@ void with_syslog(cmdmode_t mode, const args &a, function< void ( fchecker_t ) > 
 
 }
 
+void with_time(cmdmode_t mode, const args &a, function< void ( fchecker_t ) > f) {
+
+  f([&](string cmd, istream &s) {
+    if (cmd == "time") {
+      time_t sec;
+      suseconds_t usec;
+      string e;
+      throw_if_not( s >> sec >> usec );
+      throw_if( s >> e );
+
+      if(mode == force) {
+        struct timeval tv;
+        memset(&tv, 0, sizeof(struct timeval));
+        tv.tv_sec = sec;
+        tv.tv_usec = usec;
+
+        throw_if(0 != settimeofday(&tv, NULL));
+      }
+    }
+    else {
+      return false;
+    }
+
+    return true;
+  });
+
+}
 
 typedef function<void(istream&, const args&, cmdmode_t)> fapplier_t;
 
@@ -388,6 +416,10 @@ void apply_state_all(istream &fs, const args &a, cmdmode_t mode) {
   with_user(mode, a, [&](fchecker_t user_chk) {
 
   with_serial(mode, a, [&](fchecker_t serial_chk) {
+
+  with_syslog(mode, a, [&](fchecker_t syslog_chk) {
+
+  with_time(mode, a, [&](fchecker_t time_chk) {
 
     string line;
     while(getline(fs, line)) {
@@ -405,10 +437,18 @@ void apply_state_all(istream &fs, const args &a, cmdmode_t mode) {
         continue;
       if(serial_chk(cmd, s))
         continue;
+      if(syslog_chk(cmd, s))
+        continue;
+      if(time_chk(cmd, s))
+        continue;
       else  {
         throw_("Invalid command '" << cmd << "'");
       }
     }
+
+  });
+
+  });
 
   });
 
@@ -455,6 +495,10 @@ void apply_state_user(istream &fs, const args &a, cmdmode_t mode) {
 
 void apply_state_syslog(istream &fs, const args &a, cmdmode_t mode) {
   apply_state_1(with_syslog, fs, a, mode);
+}
+
+void apply_state_time(istream &fs, const args &a, cmdmode_t mode) {
+  apply_state_1(with_time, fs, a, mode);
 }
 
 void lockfile(guard &g, const string &lf) {
@@ -521,7 +565,7 @@ void usage()  {
   cerr << "         -r       Rollback unconfirmed changes" << endl;
   cerr << "         -q       Be quiet (almost)" << endl;
   cerr << "         -m mode  Operate on a subset of settings" << endl;
-  cerr << "            mode is one of (net,serial,syslog,all,user)" << endl;
+  cerr << "            mode is one of (net,serial,syslog,all,user,time)" << endl;
   cerr << "         FILE     New command file" << endl;
   cerr << "Signals:" << endl;
   cerr << "         SIGUSR1 Confirm the changes" << endl;
@@ -608,6 +652,9 @@ int main(int argc, char **argv) {
     else if (mode == ".syslog") {
       // apply_state = bind(apply_state_1<with_syslog>, with_syslog, _1, _2, _3);
       apply_state = apply_state_syslog;
+    }
+    else if (mode == ".time") {
+      apply_state = apply_state_time;
     }
     else if (mode == ".all" || mode == "") {
       apply_state = apply_state_all;
