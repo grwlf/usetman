@@ -156,8 +156,9 @@ void ip_check(const string &ip) {
 
 void sys(string s) {
   int ret = system(s.c_str());
-  dbg("\"" << s << "\" ret " << ret);
-  throw_if(ret != 0);
+  int ec = WEXITSTATUS(ret);
+  dbg("\"" << s << "\" ret " << ret << " ec " << ec);
+  throw_if(ec != 0);
 }
 
 typedef enum{dryrun,force} cmdmode_t;
