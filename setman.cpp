@@ -559,7 +559,7 @@ conf_t confirm(const args &a) {
 void usage()  {
   cerr << endl;
   cerr << "Setman reset default system settings and/or applies new one" << endl << endl;
-  cerr << "Usage: setman -e ETH [-w SEC] [-f] [-m mode] ([-c|-r]]|(-|FILE))" << endl;
+  cerr << "Usage: setman -e ETH [-w SEC] [-f] [-m mode] MOREARGS ([-c|-r]]|(-|FILE))" << endl;
   cerr << "         -e ETH   Network interface" << endl;
   cerr << "         -w SEC   Wait SEC seconds for confirmation" << endl;
   cerr << "                  (Default: " << DEFAULT_WAIT << " secons)" << endl;
@@ -569,6 +569,7 @@ void usage()  {
   cerr << "         -q       Be quiet (almost)" << endl;
   cerr << "         -m mode  Operate on a subset of settings" << endl;
   cerr << "            mode is one of (net,serial,syslog,all,user,time)" << endl;
+  cerr << "         --stress-sleep SEC  emulate delay for SEC seconds" << endl;
   cerr << "         FILE     New command file" << endl;
   cerr << "Signals:" << endl;
   cerr << "         SIGUSR1 Confirm the changes" << endl;
@@ -586,6 +587,9 @@ int main(int argc, char **argv) {
   int exitcode = 2;
   bool show_usage = true;
   bool quiet = false;
+
+  /* For debugging */
+  size_t dbgsleep = 0;
 
   try {
 
@@ -635,6 +639,10 @@ int main(int argc, char **argv) {
       }
       else if(string(argv[i]) == "-q" || string(argv[i]) == "--quiet") {
         quiet = true;
+      }
+      else if(string(argv[i]) == "--stress-sleep") {
+        throw_if(++i >= argc);
+        dbgsleep = stoi(argv[i]);
       }
       else {
         fname = string(argv[i]);
@@ -744,6 +752,11 @@ int main(int argc, char **argv) {
 
         bool restore = true;
 
+        if(dbgsleep>0) {
+          dbg("Going to sleep for " << dbgsleep << " seconds");
+          sleep(dbgsleep);
+        }
+
         try {
 
           fstream fs(fname, ios_base::in);
@@ -799,6 +812,11 @@ int main(int argc, char **argv) {
 
       case commit:
       case rollback: {
+
+        if(dbgsleep>0) {
+          dbg("Going to sleep for " << dbgsleep << " seconds");
+          sleep(dbgsleep);
+        }
 
         throw_if( fname != "" );
         throw_if( a.eth != "" );
