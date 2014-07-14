@@ -410,9 +410,30 @@ void with_time(cmdmode_t mode, const args &a, function< void ( fchecker_t ) > f)
 
 }
 
+/* 'confirm' command, marking configuration as 'good' */
+void with_confirm(cmdmode_t mode, const args &a, bool &confirmed, function< void ( fchecker_t ) > f) {
+
+  confirmed = false;
+
+  f([&](string cmd, istream &s) {
+    if (cmd == "confirm") {
+      string e;
+      throw_if( s >> e );
+      confirmed = true;
+      return true;
+    }
+    else {
+      return false;
+    }
+  });
+
+}
+
 typedef function<void(istream&, const args&, cmdmode_t)> fapplier_t;
 
 void apply_state_all(istream &fs, const args &a, cmdmode_t mode) {
+
+  bool confirmed = false;
 
   with_ip(mode, a, [&](fchecker_t ip_chk) {
 
@@ -423,6 +444,8 @@ void apply_state_all(istream &fs, const args &a, cmdmode_t mode) {
   with_syslog(mode, a, [&](fchecker_t syslog_chk) {
 
   with_time(mode, a, [&](fchecker_t time_chk) {
+
+  with_confirm(mode, a, confirmed, [&](fchecker_t confirm_chk) {
 
     string line;
     while(getline(fs, line)) {
@@ -436,13 +459,15 @@ void apply_state_all(istream &fs, const args &a, cmdmode_t mode) {
 
       if(ip_chk(cmd, s))
         continue;
-      if(user_chk(cmd, s))
+      else if(user_chk(cmd, s))
         continue;
-      if(serial_chk(cmd, s))
+      else if(serial_chk(cmd, s))
         continue;
-      if(syslog_chk(cmd, s))
+      else if(syslog_chk(cmd, s))
         continue;
-      if(time_chk(cmd, s))
+      else if(time_chk(cmd, s))
+        continue;
+      else if(confirm_chk(cmd, s))
         continue;
       else  {
         throw_("Invalid command '" << cmd << "'");
@@ -458,11 +483,21 @@ void apply_state_all(istream &fs, const args &a, cmdmode_t mode) {
   });
 
   });
+
+  });
+
+  throw_if_not(confirmed);
 }
 
 template<class T>
 void apply_state_1(T f, istream &fs, const args &a, cmdmode_t mode) {
+
+  bool confirmed = false;
+
   f(mode, a, [&](fchecker_t chk) {
+
+  with_confirm(mode, a, confirmed, [&](fchecker_t confirm_chk) {
+
 
     string line;
     while(getline(fs, line)) {
@@ -476,12 +511,18 @@ void apply_state_1(T f, istream &fs, const args &a, cmdmode_t mode) {
 
       if(chk(cmd, s))
         continue;
-
+      else if (confirm_chk(cmd, s))
+        continue;
       else  {
         throw_("Invalid command '" << cmd << "'");
       }
     }
+
   });
+
+  });
+
+  throw_if_not(confirmed);
 }
 
 void apply_state_net(istream &fs, const args &a, cmdmode_t mode) {
@@ -512,12 +553,12 @@ void lockfile(guard &g, const string &lf) {
   g.next( [=]() { dbg("Unlocking"); flock(lockfd, LOCK_UN); } );
 }
 
-typedef enum { confirmed, rejected } conf_t;
+typedef enum { commited, rejected } conf_t;
 
 volatile bool sigint = false;
 volatile bool sigusr1 = false;
 
-conf_t confirm(const args &a) {
+conf_t wait_commit(const args &a) {
 
   fstream pidf(SETMAN_PIDFILE, ios_base::out);
   atret( remove(SETMAN_PIDFILE); );
@@ -547,7 +588,7 @@ conf_t confirm(const args &a) {
   }
 
   if(sigusr1)
-    return confirmed;
+    return commited;
   else {
     if(s == a.wait_sec) {
       dbg("Timeout");
@@ -564,8 +605,8 @@ void usage()  {
   cerr << "         -w SEC   Wait SEC seconds for confirmation" << endl;
   cerr << "                  (Default: " << DEFAULT_WAIT << " secons)" << endl;
   cerr << "         -f       Force applying, don't wait for confirmation" << endl;
-  cerr << "         -c       Commit unconfirmed changes" << endl;
-  cerr << "         -r       Rollback unconfirmed changes" << endl;
+  cerr << "         -c       Commit uncommited changes" << endl;
+  cerr << "         -r       Rollback uncommited changes" << endl;
   cerr << "         -q       Be quiet (almost)" << endl;
   cerr << "         -m mode  Operate on a subset of settings" << endl;
   cerr << "            mode is one of (net,serial,syslog,all,user,time)" << endl;
@@ -735,6 +776,7 @@ int main(int argc, char **argv) {
 
         dbg("fname " << fname);
         dbg("stnm " << stnm);
+        bool stnm_checked = false;
 
         {
           dbg("Checking syntax of " << fname);
@@ -744,10 +786,13 @@ int main(int argc, char **argv) {
 
           dbg("Checking sysntax of  " << stnm);
           fstream f(stnm, ios_base::in);
-          if(!f) {
-            dbg("Warning: state " << stnm << " doesn't exist, treating as empty");
+          if(f) {
+            apply_state(f, a, dryrun);
+            stnm_checked = true;
           }
-          apply_state(f, a, dryrun);
+          else {
+            dbg("Warning: state " << stnm << " doesn't exist, ignoring");
+          }
         }
 
         bool restore = true;
@@ -772,11 +817,11 @@ int main(int argc, char **argv) {
           }
           else {
 
-            conf_t c = confirm(a);
+            conf_t c = wait_commit(a);
 
             switch(c) {
 
-              case confirmed:
+              case commited:
                 dbg("Confirming");
                 throw_if( 0 != rename(fname.c_str(), stnm.c_str()) );
                 tmpdead = true;
@@ -798,8 +843,15 @@ int main(int argc, char **argv) {
 
         if(restore) {
           dbg("Rolling back");
-          fstream f(stnm.c_str(), ios_base::in);
-          apply_state(f, a, force);
+          if(stnm_checked) {
+            fstream f(stnm.c_str(), ios_base::in);
+            apply_state(f, a, force);
+          }
+          else {
+            dbg("Applying null state");
+            istringstream nullconfig("confirm\n");
+            apply_state(nullconfig, a, force);
+          }
 
           exitcode = 1;
         }
