@@ -51,13 +51,15 @@ static bool g_haslog = false;
 
 #define dbg_stderr(ss) do{ cerr <<  "setman[" << g_dmode << "]: " << __func__ << ":" <<  __LINE__ << ": " << ss << endl; } while(0)
 
-#define dbg(s) do{ \
+#define log(s,x) do{ \
   if(g_haslog) \
-    syslog(LOG_USER|LOG_NOTICE, "%s:%d:%s", __func__, __LINE__, ss(s).c_str()); \
+    syslog(LOG_USER|(x), "%s:%d:%s", __func__, __LINE__, ss(s).c_str()); \
   else \
     dbg_stderr(s); \
   } while(0)
 
+#define dbg(s) log(s,LOG_NOTICE)
+#define err(s) log(s,LOG_ERR)
 
 #define throw_(s) do{ int _errno = errno; throw string( ss( __func__ << ":" << __LINE__ << ":e" << _errno << ": " << s)); } while(0)
 #define throw_if(cnd) do{ if(cnd){ throw_( #cnd ); } } while(0)
@@ -68,11 +70,11 @@ inline void in_try_catch(std::function<void()> f) {
       f();
     }
     catch(std::exception &e) {
-      dbg("exception " << e.what());
+      err("exception " << e.what());
       assert(false);
     }
     catch(...) {
-      dbg("exception '...'");
+      err("exception '...'");
       assert(false);
     }
 }
@@ -725,7 +727,10 @@ int main(int argc, char **argv) {
     switch(act) {
       case apply: {
 
+        /* Ugly, but safe */
+        show_usage = false;
         lockfile(g, SETMAN_LOCKFILE + mode);
+        show_usage = true;
         
         string stnm = SETMAN_STATE + mode;
         string tmpnm = stnm + ".new";
@@ -888,13 +893,13 @@ int main(int argc, char **argv) {
 
   }
   catch(string &e) {
-    dbg("Exception: " << e);
+    err("Exception: " << e);
   }
   catch(exception &e) {
-    dbg("Exception: " << e.what());
+    err("Exception: " << e.what());
   }
   catch(...) {
-    dbg("Exception unknown");
+    err("Exception unknown");
   }
 
   if(exitcode != 0 && show_usage)
