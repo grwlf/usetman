@@ -200,6 +200,7 @@ void with_ip(cmdmode_t mode, const args &a, function< void( fchecker_t ) > f) {
     sys(SETMAN_IPTABLES " -A INPUT -i lo -j ACCEPT");
     sys(SETMAN_IPTABLES " -A INPUT -p ICMP -j ACCEPT");
     sys(SETMAN_IPTABLES " -A INPUT -p TCP -m state --state ESTABLISHED,RELATED -j ACCEPT");
+    sys(SETMAN_IPTABLES " -A INPUT -p udp --sport 53 --dport 1024:65535 -m state --state ESTABLISHED -j ACCEPT");
   }
 
   f([&](string cmd, istream &s) {
