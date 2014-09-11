@@ -544,12 +544,29 @@ void apply_state_time(istream &fs, const args &a, cmdmode_t mode) {
   apply_state_1(with_time, fs, a, mode);
 }
 
-void lockfile(guard &g, const string &lf) {
+bool try_lockfile(guard &g, const string &lf) {
   int lockfd = open ( lf.c_str(), O_RDONLY | O_NOCTTY | O_NOFOLLOW | O_CREAT | O_CLOEXEC, 0666 );
   throw_if(lockfd < 0);
-  g.next( [=]() { close(lockfd); } );
-  throw_if( 0 != flock(lockfd, LOCK_EX | LOCK_NB ));
-  g.next( [=]() { dbg("Unlocking"); flock(lockfd, LOCK_UN); } );
+  if( 0 != flock(lockfd, LOCK_EX | LOCK_NB )) {
+    close(lockfd);
+    return false;
+  }
+  else {
+    g.next( [=]() { close(lockfd); } );
+    g.next( [=]() { dbg("Unlocking"); flock(lockfd, LOCK_UN); } );
+    return true;
+  }
+}
+
+void lockfile(guard &g, const string &lf) {
+  const int attempts=3;
+  for(int i=0; i<attempts; i++) {
+    if(try_lockfile(g,lf))
+      return;
+    err("Waiting for lockfile '" << lf << "'. (" << i << " attempts of " << attempts << ")");
+    sleep(1);
+  }
+  throw_("Failed to lock the lockfile '" << lf << "'");
 }
 
 typedef enum { commited, rejected } conf_t;
@@ -599,18 +616,20 @@ conf_t wait_commit(const args &a) {
 void usage()  {
   cerr << endl;
   cerr << "Setman reset default system settings and/or applies new one" << endl << endl;
-  cerr << "Usage: setman -e ETH [-w SEC] [-f] [-m mode] MOREARGS ([-c|-r]]|(-|FILE))" << endl;
-  cerr << "         -e ETH   Network interface" << endl;
-  cerr << "         -w SEC   Wait SEC seconds for confirmation" << endl;
-  cerr << "                  (Default: " << DEFAULT_WAIT << " secons)" << endl;
-  cerr << "         -f       Force applying, don't wait for confirmation" << endl;
-  cerr << "         -c       Commit uncommited changes" << endl;
-  cerr << "         -r       Rollback uncommited changes" << endl;
-  cerr << "         -q       Be quiet (almost)" << endl;
-  cerr << "         -m mode  Operate on a subset of settings" << endl;
-  cerr << "            mode is one of (net,serial,syslog,all,user,time)" << endl;
-  cerr << "         --stress-sleep SEC  emulate delay for SEC seconds" << endl;
-  cerr << "         FILE     New command file" << endl;
+  cerr << "Usage: setman -e ETH [-w SEC] [-f] [-m mode] [-q] (-s|-c|-r|(-|FILE))" << endl;
+  cerr << "    -e ETH       Network interface" << endl;
+  cerr << "    -w SEC       Wait SEC seconds for confirmation" << endl;
+  cerr << "                 (Default: " << DEFAULT_WAIT << " secons)" << endl;
+  cerr << "    -f           Force applying, don't wait for confirmation" << endl;
+  cerr << "    -c|--commit  Commit uncommited changes" << endl;
+  cerr << "    -r|--rollback  Rollback uncommited changes" << endl;
+  cerr << "    -s|--status  Print status (exitcode is 0 if ready for commits, 1 otherwise)" << endl;
+  cerr << "    -q           Be quiet (almost)" << endl;
+  cerr << "    -m mode      Operate on a subset of settings" << endl;
+  cerr << "                 mode is one of (net,serial,syslog,all,user,time)" << endl;
+  cerr << "                 default is 'all'" << endl;
+  cerr << "    --stress-sleep SEC  emulate delay for SEC seconds" << endl;
+  cerr << "    FILE         New command file" << endl;
   cerr << "Signals:" << endl;
   cerr << "         SIGUSR1 Confirm the changes" << endl;
   cerr << "Files:" << endl;
@@ -620,7 +639,7 @@ void usage()  {
   exit(3);
 }
 
-typedef enum {commit, rollback, apply} act_t;
+typedef enum {commit, rollback, apply, status} act_t;
 
 int main(int argc, char **argv) {
 
@@ -676,6 +695,9 @@ int main(int argc, char **argv) {
       }
       else if(string(argv[i]) == "-r" || string(argv[i]) == "--rollback") {
         act = rollback;
+      }
+      else if(string(argv[i]) == "-s" || string(argv[i]) == "--status") {
+        act = status;
       }
       else if(string(argv[i]) == "-q" || string(argv[i]) == "--quiet") {
         quiet = true;
@@ -875,12 +897,44 @@ int main(int argc, char **argv) {
         throw_if( fname != "" );
         throw_if( a.eth != "" );
 
+        show_usage = false;
+
         fstream pidf(SETMAN_PIDFILE, ios_base::in);
         int pid;
         throw_if_not( pidf >> pid );
         int ret = kill(pid, act == commit ? SIGUSR1 : SIGINT);
         throw_if(ret != 0);
         exitcode = 0;
+        break;
+      }
+
+      case status: {
+
+        throw_if( fname != "" );
+        throw_if( a.eth != "" );
+
+        show_usage = false;
+
+        if (try_lockfile(g, SETMAN_LOCKFILE + mode) ) {
+          if(!quiet)
+            cout << "Setman is ready for commands" << endl;
+          exitcode = 0;
+        }
+        else {
+          try {
+            fstream pidf(SETMAN_PIDFILE, ios_base::in);
+            int pid;
+            throw_if_not( pidf >> pid );
+            if(!quiet)
+              cout << "Setman process " << pid << " was waiting for commit decision at the moment of status call" << endl;
+            exitcode = 1;
+          }
+          catch (string &e) {
+            err("Exception: " << e);
+            exitcode = 2;
+          }
+        }
+
         break;
       }
 
