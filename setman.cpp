@@ -273,7 +273,12 @@ void with_ip(cmdmode_t mode, const args &a, function< void( fchecker_t ) > f) {
       ip_check(mask);
 
       if(mode == force) {
-        sys( ss(SETMAN_IPTABLES << " -A INPUT -s '" << ip << "/" << mask << "' -j ACCEPT"));
+        if(mask == "0.0.0.0") {
+          sys( ss(SETMAN_IPTABLES << " -A INPUT -j ACCEPT"));
+        }
+        else {
+          sys( ss(SETMAN_IPTABLES << " -A INPUT -s '" << ip << "/" << mask << "' -j ACCEPT"));
+        }
       }
     }
     else {
