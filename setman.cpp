@@ -181,6 +181,9 @@ void with_ip(cmdmode_t mode, const args &a, function< void( fchecker_t ) > f) {
       ret = kill(pid, SIGINT);
       if(ret != 0)
         dbg("Failed to send SIGINT to " << pid);
+      ret = kill(pid, SIGKILL);
+      if(ret != 0)
+        dbg("Failed to send SIGKILL to " << pid);
     }
     else {
       dbg("Error accessing " << SETMAN_DHCPPID << " (file doesn't exist?)");
